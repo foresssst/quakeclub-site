@@ -34,9 +34,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     // Add local aliases that aren't in QLStats
     for (const localAlias of localAliases) {
-      if (!allAliases.some((a) => a.alias === localAlias.name)) {
+      if (!allAliases.some((a) => a.alias === localAlias.alias)) {
         allAliases.push({
-          alias: localAlias.name,
+          alias: localAlias.alias,
           firstSeen: localAlias.firstSeen,
           lastSeen: localAlias.lastSeen,
           timesUsed: localAlias.timesUsed,
