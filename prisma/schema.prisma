@@ -1,0 +1,361 @@
+// QuakeClub Database Schema
+// Este schema maneja datos que NO están en QLStats:
+// - Clanes/Equipos
+// - Torneos QuakeClub
+// - Achievements/Badges custom
+// - Weapon stats detalladas (desde minqlx plugin)
+// - Alias tracking
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// JUGADORES
+// ============================================================================
+
+model Player {
+  id          String   @id @default(cuid())
+  steamId     String   @unique
+  username    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  clanMemberships ClanMember[]
+  clanInvitations ClanInvitation[]
+  achievements    PlayerAchievement[]
+  weaponStats     WeaponStats[]
+  matchStats      MatchStats[]
+  tournamentParticipants TournamentParticipant[]
+  eloHistory      EloHistory[]
+  aliases         PlayerAlias[]
+
+  @@index([steamId])
+}
+
+// ============================================================================
+// ELO HISTORY (para trackear cambios de rating)
+// ============================================================================
+
+model EloHistory {
+  id         String   @id @default(cuid())
+  playerId   String
+  steamId    String
+  gameType   String   // ca, duel, tdm, ctf, ffa, etc.
+  eloBefore  Int      // ELO antes del match
+  eloAfter   Int      // ELO después del match
+  change     Int      // Diferencia (puede ser positivo o negativo)
+  matchId    String?  // Referencia opcional al MatchStats
+  recordedAt DateTime @default(now())
+
+  // Relaciones
+  player Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  match  MatchStats? @relation(fields: [matchId], references: [id], onDelete: SetNull)
+
+  @@index([playerId])
+  @@index([steamId])
+  @@index([gameType])
+  @@index([recordedAt])
+}
+
+// ============================================================================
+// CLANES/EQUIPOS
+// ============================================================================
+
+model Clan {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  tag         String   @unique  // Ej: [QC], [GODS], etc
+  description String?
+  logoUrl     String?
+  foundedAt   DateTime @default(now())
+  active      Boolean  @default(true)
+
+  // Relaciones
+  members     ClanMember[]
+  invitations ClanInvitation[]
+  tournaments TournamentTeam[]
+
+  @@index([tag])
+}
+
+model ClanMember {
+  id        String   @id @default(cuid())
+  clanId    String
+  playerId  String
+  role      ClanRole @default(MEMBER)
+  joinedAt  DateTime @default(now())
+
+  // Relaciones
+  clan   Clan   @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([clanId, playerId])
+  @@index([clanId])
+  @@index([playerId])
+}
+
+model ClanInvitation {
+  id         String   @id @default(cuid())
+  clanId     String
+  playerId   String
+  invitedBy  String   // Steam ID of the person who sent the invitation
+  status     InvitationStatus @default(PENDING)
+  createdAt  DateTime @default(now())
+  respondedAt DateTime?
+
+  // Relaciones
+  clan   Clan   @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([clanId, playerId])
+  @@index([clanId])
+  @@index([playerId])
+  @@index([status])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+enum ClanRole {
+  LEADER
+  OFFICER
+  MEMBER
+}
+
+// ============================================================================
+// TORNEOS
+// ============================================================================
+
+model Tournament {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  gameMode    String   // ca, duel, tdm, ctf
+  format      String   // single-elimination, round-robin, etc
+  startDate   DateTime
+  endDate     DateTime?
+  prizePool   String?
+  rules       String?  // JSON string con reglas
+  status      TournamentStatus @default(UPCOMING)
+  bannerUrl   String?
+
+  // Relaciones
+  teams       TournamentTeam[]
+  matches     TournamentMatch[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([startDate])
+}
+
+enum TournamentStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+model TournamentTeam {
+  id           String @id @default(cuid())
+  tournamentId String
+  clanId       String?
+  teamName     String  // Para teams sin clan
+  seed         Int?
+
+  // Relaciones
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  clan         Clan?      @relation(fields: [clanId], references: [id])
+  participants TournamentParticipant[]
+  homeMatches  TournamentMatch[] @relation("HomeTeam")
+  awayMatches  TournamentMatch[] @relation("AwayTeam")
+
+  @@unique([tournamentId, teamName])
+  @@index([tournamentId])
+}
+
+model TournamentParticipant {
+  id       String @id @default(cuid())
+  teamId   String
+  playerId String
+
+  // Relaciones
+  team   TournamentTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player Player         @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, playerId])
+  @@index([playerId])
+}
+
+model TournamentMatch {
+  id           String   @id @default(cuid())
+  tournamentId String
+  homeTeamId   String
+  awayTeamId   String
+  round        String   // quarterfinals, semifinals, final, etc
+  scheduledAt  DateTime?
+  playedAt     DateTime?
+  homeScore    Int?
+  awayScore    Int?
+  mapPlayed    String?
+  winnerId     String?
+  status       MatchStatus @default(SCHEDULED)
+
+  // Relaciones
+  tournament Tournament     @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  homeTeam   TournamentTeam @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam   TournamentTeam @relation("AwayTeam", fields: [awayTeamId], references: [id])
+
+  @@index([tournamentId])
+  @@index([scheduledAt])
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+// ============================================================================
+// ACHIEVEMENTS/BADGES
+// ============================================================================
+
+model Achievement {
+  id          String   @id @default(cuid())
+  code        String   @unique  // first-blood, ace-player, tournament-winner, etc
+  name        String
+  description String
+  iconUrl     String?
+  tier        AchievementTier @default(BRONZE)
+  points      Int      @default(0)
+
+  // Relaciones
+  players     PlayerAchievement[]
+
+  @@index([code])
+}
+
+enum AchievementTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+model PlayerAchievement {
+  id            String   @id @default(cuid())
+  playerId      String
+  achievementId String
+  unlockedAt    DateTime @default(now())
+
+  // Relaciones
+  player      Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, achievementId])
+  @@index([playerId])
+}
+
+// ============================================================================
+// WEAPON STATS (desde minqlx plugin)
+// ============================================================================
+
+model WeaponStats {
+  id        String   @id @default(cuid())
+  playerId  String
+  matchId   String?
+  weapon    Weapon
+  hits      Int      @default(0)
+  shots     Int      @default(0)
+  damage    Int      @default(0)
+  kills     Int      @default(0)
+  accuracy  Float    @default(0)  // Calculado: (hits/shots) * 100
+
+  createdAt DateTime @default(now())
+
+  // Relaciones
+  player Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  match  MatchStats? @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([playerId])
+  @@index([weapon])
+  @@index([matchId])
+}
+
+enum Weapon {
+  LG  // Lightning Gun
+  RL  // Rocket Launcher
+  RG  // Railgun
+  SG  // Shotgun
+  PG  // Plasma Gun
+  GL  // Grenade Launcher
+  MG  // Machine Gun
+  GT  // Gauntlet
+}
+
+// ============================================================================
+// MATCH STATS (desde minqlx plugin)
+// ============================================================================
+
+model MatchStats {
+  id            String   @id @default(cuid())
+  playerId      String
+  steamId       String
+  playerName    String
+  map           String
+  gameType      String   // ca, duel, tdm, ctf
+  kills         Int      @default(0)
+  deaths        Int      @default(0)
+  damageDealt   Int      @default(0)
+  damageTaken   Int      @default(0)
+  kdRatio       Float    @default(0)
+  minLifetime   Float?   // segundos
+  maxLifetime   Float?   // segundos
+  avgLifetime   Float?   // segundos
+  playedAt      DateTime @default(now())
+
+  // Relaciones
+  player      Player        @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  weaponStats WeaponStats[]
+  eloHistory  EloHistory[]
+
+  @@index([playerId])
+  @@index([playedAt])
+  @@index([gameType])
+}
+
+// ============================================================================
+// ALIAS TRACKING
+// ============================================================================
+
+model PlayerAlias {
+  id         String   @id @default(cuid())
+  playerId   String
+  steamId    String
+  alias      String   // The nickname used
+  firstSeen  DateTime @default(now())
+  lastSeen   DateTime @default(now())
+  timesUsed  Int      @default(1)
+
+  // Relaciones
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([steamId, alias])
+  @@index([playerId])
+  @@index([steamId])
+  @@index([lastSeen])
+}

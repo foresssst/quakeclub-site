@@ -1,0 +1,2 @@
+# Este archivo mantiene la carpeta data/ en el repositorio
+# Los archivos JSON con datos de usuario no se suben al repo (ver .gitignore)
