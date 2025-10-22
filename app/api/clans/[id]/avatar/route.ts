@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getSession } from "@/lib/auth"
 import { updateClanAvatar } from "@/lib/clans-storage"
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession()
     if (!session) {
@@ -10,7 +10,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     }
 
     const { logoUrl } = await request.json()
-    const clanId = params.id
+    const { id: clanId } = await params
 
     if (!logoUrl) {
       return NextResponse.json({ error: "Falta la URL del avatar" }, { status: 400 })

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getSession } from "@/lib/auth"
 import { acceptJoinRequest, rejectJoinRequest } from "@/lib/clans-storage"
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession()
     if (!session) {
@@ -10,7 +10,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     }
 
     const { action } = await request.json()
-    const requestId = params.id
+    const { id: requestId } = await params
 
     if (action === "accept") {
       const success = acceptJoinRequest(requestId, session.user.id)
